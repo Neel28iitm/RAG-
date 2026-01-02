@@ -1,0 +1,22 @@
+paths:
+  data_raw: "data/raw"
+  tracking_file: "data/processed_files.json"
+  vector_store_config:
+    url: "https://690e02e9-740a-47e8-bc03-a9fea7a1692f.us-east4-0.gcp.cloud.qdrant.io"
+    collection_name: "rag_production"
+
+parsing:
+  chunk_size: 1024
+  chunk_overlap: 200 # User requested 200
+  language: "en"
+
+llm:
+  model_name: "gemini-2.5-flash" # User requested consistency with ingestion model
+  temperature: 0.7
+  max_tokens: 4096
+
+embedding:
+  model_name: "models/text-embedding-004"
+
+retrieval:
+  top_k: 10 # Reduced from 50 to 10 to limit context size and improve latency
