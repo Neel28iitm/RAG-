@@ -2,16 +2,18 @@ paths:
   data_raw: "data/raw"
   tracking_file: "data/processed_files.json"
   vector_store_config:
-    url: "https://690e02e9-740a-47e8-bc03-a9fea7a1692f.us-east4-0.gcp.cloud.qdrant.io"
+    url: "http://localhost:6333"
     collection_name: "rag_production"
 
 parsing:
-  chunk_size: 1024
-  chunk_overlap: 200 # User requested 200
+  chunk_size: 5000 # Parent Chunk Size (Increased to 5000 to bridge broken tables)
+  chunk_overlap: 500 
+  child_chunk_size: 600 # Child Chunk Size for Indexing
+  child_chunk_overlap: 100 # [NEW] Ensures no data loss at boundaries
   language: "en"
 
 llm:
-  model_name: "gemini-2.5-flash" # User requested consistency with ingestion model
+  model_name: "gemini-2.5-flash" 
   temperature: 0.7
   max_tokens: 4096
 
@@ -19,4 +21,5 @@ embedding:
   model_name: "models/text-embedding-004"
 
 retrieval:
-  top_k: 10 # Reduced from 50 to 10 to limit context size and improve latency
+  top_k: 10 # Final results to show user (after reranking)
+  candidate_k: 60 # [UPDATED] Increased to 60 for broader retrieval coverage in complex queries

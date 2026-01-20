@@ -1,5 +1,5 @@
 
-# Environment Variables
+# Environment Variables (CRITICAL - Never commit!)
 .env
 config/.env
 *.env
@@ -9,12 +9,27 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Data & Database
+# Data & Database (Contains sensitive data)
 data/processed_files.json
 data/processed/
-# Logs
+data/raw/
+data/doc_store/
+*.db
+*.sqlite
+*.sqlite3
+rag_app.db
+
+# PDFs (Large files - use S3 instead)
+*.pdf
+
+# Qdrant Storage (Local vector DB - use cloud)
+qdrant_storage/
+
+# Logs & Debug Files
 logs/
 *.log
+debug_*.txt
+debug_*.pdf
 
 # IDE
 .vscode/
@@ -24,3 +39,15 @@ logs/
 venv/
 .venv/
 env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+

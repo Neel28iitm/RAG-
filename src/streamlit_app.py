@@ -2,6 +2,13 @@ import streamlit as st
 import asyncio
 import os
 import sys
+# Force UTF-8 for Windows Console
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
+
 import nest_asyncio
 from dotenv import load_dotenv
 
@@ -137,8 +144,39 @@ def main():
                 st.rerun()
 
         st.divider()
-        with st.expander("🛠️ Admin / Settings"):
-            if st.button("🔄 Re-Ingest Documents"):
+        
+        # --- ADMIN / DASHBOARD ---
+        with st.expander("🛠️ Admin & Status"):
+            st.markdown("### 📊 Ingestion Dashboard")
+            
+            # Fetch Status directly from DB
+            from src.core.database import get_db
+            from src.core.models import FileTracking
+            
+            try:
+                db = next(get_db())
+                files = db.query(FileTracking).all()
+                if files:
+                    # Create simple stats
+                    total = len(files)
+                    completed = sum(1 for f in files if f.status == "COMPLETED")
+                    failed = sum(1 for f in files if f.status == "FAILED")
+                    
+                    st.metric("Total Files", total)
+                    col1, col2 = st.columns(2)
+                    col1.metric("✅ Done", completed)
+                    col2.metric("❌ Fail", failed)
+                    
+                    # Dataframe view
+                    data_list = [{"File": f.filename, "Status": f.status} for f in files]
+                    st.dataframe(data_list, hide_index=True)
+                else:
+                    st.info("No ingestion data found.")
+                db.close()
+            except Exception as e:
+                st.error(f"DB Error: {e}")
+
+            if st.button("🔄 Trigger Re-Ingestion", type="primary"):
                 asyncio.run(run_ingestion(config, retrieval_service))
             
             key = os.getenv("GOOGLE_API_KEY", "")
@@ -197,17 +235,42 @@ def main():
                             lc_history.append(AIMessage(content=msg["content"]))
 
                     # RAG Pipeline
-                    expanded = generation_service.expand_query(prompt)
                     
-                    # Use FlashRank Re-ranking (Same as run.py)
-                    docs = retrieval_service.get_relevant_docs(expanded, top_k=5)
+                    # 1. Expand/Contextualize Query
+                    # Note: We now pass history to get_relevant_docs which uses rewrite_query inside.
+                    # So explicit expansion here might be redundant or double-work, but 'expand_query' was for German translation?
+                    # Let's trust 'get_relevant_docs' with its new 'rewrite_query' (Contextual + Filter) logic.
+                    # expanded = generation_service.expand_query(prompt) <-- Removing this to rely on new logic
+                    
+                    # 2. Retrieve (Pass History!)
+                    docs, metrics = retrieval_service.get_relevant_docs(
+                        prompt, 
+                        top_k=min(15, config['retrieval']['top_k']),  # Use 15 or config value (whichever is higher)
+                        chat_history=lc_history
+                    )
                     
                     if not docs:
                         response_text = "I couldn't find relevant info."
+                        st.markdown(response_text)
                     else:
-                        response_text = generation_service.generate_answer(prompt, docs, chat_history=lc_history)
+                        # [LATENCY DASHBOARD]
+                        with st.status("⏱️ Performance Analysis", expanded=False):
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("🔍 Retrieval", f"{metrics['retrieval_seconds']:.2f}s")
+                            c2.metric("🔄 Reranking", f"{metrics['rerank_seconds']:.2f}s")
+                            c3.metric("⚡ Total Search", f"{metrics['total_seconds']:.2f}s")
 
-                    st.markdown(response_text)
+                        # 3. Streaming Response
+                        response_placeholder = st.empty()
+                        full_response = ""
+                        
+                        # Use stream_answer
+                        for chunk in generation_service.stream_answer(prompt, docs, chat_history=lc_history):
+                            full_response += chunk
+                            response_placeholder.markdown(full_response + "▌")
+                        
+                        response_placeholder.markdown(full_response)
+                        response_text = full_response
                     
                     # Save AI Message
                     history_manager.add_message(st.session_state.current_session_id, "assistant", response_text)

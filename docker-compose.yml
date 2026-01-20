@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # 1. Message Broker (Redis)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+  # 2. Vector Database (Qdrant) - REMOVED (Using Cloud)
+  # qdrant:
+  #   image: qdrant/qdrant
+  #   ports:
+  #     - "6333:6333"
+  #   volumes:
+  #     - ./qdrant_storage:/qdrant/storage
+  #   restart: always
+
+  # 3. Celery Worker (The Processor)
+  # 3. Celery Worker (The Processor)
+  worker:
+    build: .
+    command: celery -A src.worker.celery_app worker --loglevel=info -P threads --concurrency=4
+    env_file: .env
+    environment:
+      # - QDRANT_URL=http://qdrant:6333  <-- Removed to read from .env (Cloud)
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - LLAMA_CLOUD_API_KEY=${LLAMA_CLOUD_API_KEY}
+    volumes:
+      - ./config:/app/config
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+    depends_on:
+      - redis
+      # - qdrant
+    restart: unless-stopped
+
+  # 4. Main App (Streamlit Frontend)
+  app:
+    build: .
+    # Runs Streamlit on 8501
+    command: python main.py run
+    ports:
+      - "8501:8501"
+    env_file: .env
+    environment:
+      # - QDRANT_URL=http://qdrant:6333  <-- Removed to read from .env (Cloud)
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - worker
+      - api
+    restart: always
+
+  # 5. API Service (FastAPI Backend)
+  api:
+    build: .
+    # Runs FastAPI on 8000
+    command: python api_handover.py
+    ports:
+      - "8000:8000"
+      - "6006:6006" # Arize Phoenix UI
+    env_file: .env
+    environment:
+      # - QDRANT_URL=http://qdrant:6333  <-- Removed to read from .env (Cloud)
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - worker
+    restart: always

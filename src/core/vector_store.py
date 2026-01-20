@@ -10,7 +10,7 @@ logger = logging.getLogger('app_logger')
 
 def get_qdrant_client(config):
     """Initializes and returns a QdrantClient"""
-    url = config['paths']['vector_store_config']['url']
+    url = os.getenv("QDRANT_URL", config['paths']['vector_store_config']['url'])
     collection_name = config['paths']['vector_store_config']['collection_name']
     
     logger.info(f"💾 Connecting to Qdrant at {url}")

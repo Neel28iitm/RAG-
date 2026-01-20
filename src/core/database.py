@@ -37,4 +37,6 @@ class ChatSession(Base):
 
 # Init DB: Create Tables if not exist
 def init_db():
+    # Import all models here so they are registered with Base.metadata
+    from src.core.models import FileTracking
     Base.metadata.create_all(bind=engine)
