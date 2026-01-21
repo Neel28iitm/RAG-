@@ -58,6 +58,11 @@ qdrant_storage/
 # Redis dumps
 dump.rdb
 
+# Trace Reports & Logs
+trace_report.txt
+trace.log
+failed_ingestions.log
+
 # Brain/Artifacts (local analysis)
 .gemini/
 
