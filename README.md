@@ -53,8 +53,25 @@ docker-compose up -d
 
 ### 4. Access Application
 
+**Option A: Local Access**
 - **Streamlit UI**: http://localhost:8501
 - **Qdrant Dashboard**: http://localhost:6333/dashboard
+
+**Option B: Public Access (ngrok)**
+```bash
+# Install ngrok (if not installed)
+# Download from: https://ngrok.com/download
+
+# Expose Streamlit on public URL
+ngrok http 8501
+
+# Share the generated URL (e.g., https://abc123.ngrok.io)
+```
+
+**Production Deployment:**
+- For production, use proper reverse proxy (Nginx)
+- Or deploy on cloud platforms (AWS ECS, Google Cloud Run, etc.)
+- ngrok is great for testing/demos
 
 ## 📊 Architecture
 
