@@ -14,7 +14,7 @@ parsing:
 
 llm:
   model_name: "gemini-2.5-flash" 
-  temperature: 0.7
+  temperature: 0.3  # Balanced: Consistent yet natural/human-like
   max_tokens: 4096
 
 embedding:

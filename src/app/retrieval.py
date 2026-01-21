@@ -442,9 +442,18 @@ class RetrievalService:
 
     def get_relevant_docs(self, query, top_k=10, chat_history=None):
         """Hybrid Retrieval (Child Search -> Parent Fetch) + Reranking Loop"""
+        
+        # Initialize default metrics
+        metrics = {
+            "rewrite_seconds": 0.0,
+            "retrieval_seconds": 0.0,
+            "rerank_seconds": 0.0,
+            "total_seconds": 0.0
+        }
+        
         try:
             if self.retriever is None:
-                return [], {}
+                return [], metrics
 
             # Step 0: Query Rewriting (The Safety Net)
             rewritten_result = self.rewrite_query(query, chat_history) # Returns dict now
@@ -583,7 +592,9 @@ class RetrievalService:
         
         except Exception as e:
             logger.error(f"Retrieval Error: {e}")
-            return [], {}
+            import traceback
+            traceback.print_exc()
+            return [], metrics
             
     def clear(self):
         """Clears the collection and docstore"""
