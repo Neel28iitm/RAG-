@@ -1,4 +1,4 @@
-"""
+﻿"""
 Module: Generation
 Purpose: LLM interaction and answer generation using Gemini 1.5/2.0 Flash.
 """
@@ -234,3 +234,37 @@ class GenerationService:
         except Exception as e:
             logger.error(f"❌ Streaming failed: {e}")
             yield "Error: Generation failed."
+            logger.error(f"❌ Streaming failed: {e}")
+            yield "Error: Generation failed."
+
+    def generate_generic_response(self, query: str, chat_history=None) -> str:
+        """Generate response for generic/chitchat queries WITHOUT retrieval"""
+        system_prompt = """You are a friendly RAG assistant specialized in acoustic engineering and building acoustics.
+
+When responding to greetings, thanks, or casual messages:
+- Respond naturally and conversationally (vary your greetings!)
+- Be warm but concise
+- Optionally mention you can help with: ISO standards, Swedish building codes (SS 25268), noise measurements, reverberation analysis
+- Don't always use the exact same phrasing - be natural and varied
+
+Your expertise: Acoustic standards (ISO 3744, ISO 3382), Swedish regulations, noise limits, measurement techniques."""
+        
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            MessagesPlaceholder(variable_name="chat_history", optional=True),
+            ("human", "{question}")
+        ])
+        
+        chain = prompt | self.llm
+        
+        try:
+            response = chain.invoke({
+                "question": query,
+                "chat_history": chat_history or []
+            })
+            return response.content
+        except Exception as e:
+            logger.error(f"Generic response failed: {e}")
+            return "Hello! How can I assist you with acoustic measurements and standards today?"

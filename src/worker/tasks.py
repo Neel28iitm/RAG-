@@ -17,6 +17,10 @@ def process_document_task(self, file_path_str: str, config: dict):
     filename = Path(file_path_str).name
     
     try:
+        # FIX #13: Add timing metrics
+        import time
+        task_start = time.time()
+        
         logger.info(f"Task Started: {filename}")
         
         # Update Status to PROCESSING
@@ -50,18 +54,34 @@ def process_document_task(self, file_path_str: str, config: dict):
         if chunks:
             retriever = RetrievalService(config)
             
-            # [IDEMPOTENCY FIX] Delete existing vectors for this file before adding new ones
-            retriever.delete_documents_by_source(filename)
-            
-            retriever.add_documents(chunks)
-            
-            # Update Status to COMPLETED
-            tracking.status = "COMPLETED"
-            tracking.updated_at = datetime.utcnow()
-            db.commit()
-            
-            logger.info(f"Task Success: {filename}")
-            return f"SUCCESS: {filename}"
+            # FIX #1: Make vector operations and DB update ATOMIC
+            # Only mark COMPLETED after successful vector storage
+            try:
+                # Delete existing vectors for this file before adding new ones
+                retriever.delete_documents_by_source(filename)
+                
+                # Add new vectors
+                retriever.add_documents(chunks)
+                
+                # ONLY NOW mark as COMPLETED (after successful vector storage)
+                tracking.status = "COMPLETED"
+                tracking.updated_at = datetime.utcnow()
+                db.commit()
+                
+                # FIX #13: Log timing metrics
+                task_duration = time.time() - task_start
+                logger.info(f"✅ Task Success: {filename}")
+                logger.info(f"📊 Total Processing Time: {task_duration:.2f}s")
+                return f"SUCCESS: {filename}"
+            except Exception as e_vector:
+                # Vector storage failed - rollback and mark as FAILED
+                logger.error(f"Vector storage failed for {filename}: {e_vector}")
+                db.rollback()
+                tracking.status = "FAILED"
+                tracking.error_msg = f"Vector storage error: {str(e_vector)}"
+                tracking.updated_at = datetime.utcnow()
+                db.commit()
+                raise e_vector
         else:
             # 3. Handle Empty Content (Silent Failure)
             error_msg = f"No chunks produced for {filename}. Triggering Retry."

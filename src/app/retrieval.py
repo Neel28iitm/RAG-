@@ -117,7 +117,7 @@ class S3Store(ByteStore):
             except Exception:
                 return idx, None
 
-        with ThreadPoolExecutor(max_workers=50) as executor:
+        with ThreadPoolExecutor(max_workers=10) as executor:  # Optimized: reduced from 50 to 10
             fetched_results = list(executor.map(fetch_s3_and_cache_redis, zip(indices_to_fetch, keys_to_fetch_from_s3)))
             
         # 3. Merge Results

@@ -28,7 +28,6 @@ from src.app.generation import GenerationService
 from src.app.query_classifier import QueryClassifier
 from src.app.history import ChatHistoryManager
 from src.core.config import load_config as core_load_config
-from src.app.query_classifier import QueryClassifier
 
 # Setup Logger
 logger = setup_logger('streamlit_logger')
@@ -46,9 +45,8 @@ def get_services():
     config = load_config()
     retrieval_service = RetrievalService(config)
     generation_service = GenerationService(config)
-    history_manager = ChatHistoryManager()
-    query_classifier = QueryClassifier()  
-    return config, retrieval_service, generation_service, history_manager, query_classifier
+    history_manager = ChatHistoryManager() 
+    return config, retrieval_service, generation_service, history_manager
 
 async def run_ingestion(config, retrieval_service):
     with st.spinner("🚀 Analyzing Documents & Processing..."):
@@ -113,7 +111,7 @@ def main():
 
     # Load Services
     try:
-        config, retrieval_service, generation_service, history_manager, query_classifier = get_services()
+        config, retrieval_service, generation_service, history_manager = get_services()
     except Exception as e:
         st.error(f"Failed to initialize services: {e}")
         st.stop()
@@ -237,82 +235,44 @@ def main():
                         elif msg["role"] == "assistant":
                             lc_history.append(AIMessage(content=msg["content"]))
 
-                    # RAG Pipeline with Query Classification
+                    # RAG Pipeline
                     
-                    # Classify query type
-                    query_type = query_classifier.classify(prompt)
+                    # 1. Expand/Contextualize Query
+                    # Note: We now pass history to get_relevant_docs which uses rewrite_query inside.
+                    # So explicit expansion here might be redundant or double-work, but 'expand_query' was for German translation?
+                    # Let's trust 'get_relevant_docs' with its new 'rewrite_query' (Contextual + Filter) logic.
+                    # expanded = generation_service.expand_query(prompt) <-- Removing this to rely on new logic
                     
-                    if query_type == 'generic':
-                        # FAST PATH: Generic queries with streaming
-                        import time
-                        start_time = time.time()
-                        
-                        # Stream generic response
+                    # 2. Retrieve (Pass History!)
+                    docs, metrics = retrieval_service.get_relevant_docs(
+                        prompt, 
+                        top_k=min(15, config['retrieval']['top_k']),  # Use 15 or config value (whichever is higher)
+                        chat_history=lc_history
+                    )
+                    
+                    # Continue with RAG pipeline (only for knowledge queries)
+                    if not docs:
+                        response_text = "I couldn't find relevant info."
+                        st.markdown(response_text)
+                    else:
+                        # [LATENCY DASHBOARD]
+                        with st.status("⏱️ Performance Analysis", expanded=False):
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("🔍 Retrieval", f"{metrics['retrieval_seconds']:.2f}s")
+                            c2.metric("🔄 Reranking", f"{metrics['rerank_seconds']:.2f}s")
+                            c3.metric("⚡ Total Search", f"{metrics['total_seconds']:.2f}s")
+
+                        # 3. Streaming Response
                         response_placeholder = st.empty()
                         full_response = ""
                         
-                        # Generic responses are short, simulate streaming for consistency
-                        complete_response = generation_service.generate_generic_response(
-                            prompt,
-                            chat_history=lc_history[-6:] if lc_history else []
-                        )
-                        
-                        # Stream word-by-word for smooth UX
-                        import time
-                        words = complete_response.split()
-                        for i, word in enumerate(words):
-                            full_response += word + " "
+                        # Use stream_answer
+                        for chunk in generation_service.stream_answer(prompt, docs, chat_history=lc_history):
+                            full_response += chunk
                             response_placeholder.markdown(full_response + "▌")
-                            time.sleep(0.03)  # 30ms delay per word
                         
-                        response_placeholder.markdown(full_response.strip())
-                        response_text = full_response.strip()
-                        elapsed = time.time() - start_time
-                        
-                        # Show metrics
-                        with st.status("⚡ Performance (Generic Query)", expanded=False):
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("🔍 Retrieval", "0.00s", "Skipped ✓")
-                            c2.metric("🔄 Reranking", "0.00s", "Skipped ✓")
-                            c3.metric("⏱️ Total", f"{elapsed:.2f}s")
-                        
-                        docs = []  # No docs for generic
-                        
-                    else:
-                        # FULL RAG: Knowledge queries
-                        # 1. Expand/Contextualize Query
-                        # ... keep existing comments ...
-                        
-                        # 2. Retrieve (Pass History!)
-                        docs, metrics = retrieval_service.get_relevant_docs(
-                            prompt, 
-                            top_k=min(15, config['retrieval']['top_k']),
-                            chat_history=lc_history
-                        )
-                    
-                        # Continue with RAG pipeline (only for knowledge queries)
-                        if not docs:
-                            response_text = "I couldn't find relevant info."
-                            st.markdown(response_text)
-                        else:
-                            # [LATENCY DASHBOARD]
-                            with st.status("⏱️ Performance Analysis", expanded=False):
-                                c1, c2, c3 = st.columns(3)
-                                c1.metric("🔍 Retrieval", f"{metrics['retrieval_seconds']:.2f}s")
-                                c2.metric("🔄 Reranking", f"{metrics['rerank_seconds']:.2f}s")
-                                c3.metric("⚡ Total Search", f"{metrics['total_seconds']:.2f}s")
-
-                            # 3. Streaming Response
-                            response_placeholder = st.empty()
-                            full_response = ""
-                            
-                            # Use stream_answer
-                            for chunk in generation_service.stream_answer(prompt, docs, chat_history=lc_history):
-                                full_response += chunk
-                                response_placeholder.markdown(full_response + "▌")
-                            
-                            response_placeholder.markdown(full_response)
-                            response_text = full_response
+                        response_placeholder.markdown(full_response)
+                        response_text = full_response
                     
                     # Save AI Message
                     history_manager.add_message(st.session_state.current_session_id, "assistant", response_text)

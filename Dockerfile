@@ -4,10 +4,13 @@ FROM python:3.10-slim
 # Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (including Tesseract OCR for rotation detection)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libtesseract-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file

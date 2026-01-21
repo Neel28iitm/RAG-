@@ -22,4 +22,4 @@ embedding:
 
 retrieval:
   top_k: 10 # Final results to show user (after reranking)
-  candidate_k: 60 # [UPDATED] Increased to 60 for broader retrieval coverage in complex queries
+  candidate_k: 40 # Optimized for speed-quality balance (reduced from 60)
