@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 from datetime import datetime
+from celery import Task
 from celery.utils.log import get_task_logger
 
 from src.worker.celery_app import app
@@ -11,100 +12,149 @@ from src.core.models import FileTracking
 
 logger = get_task_logger(__name__)
 
-@app.task(bind=True, max_retries=3)
+
+# Custom Retry Task with exponential backoff
+class RetryableIngestionTask(Task):
+    """
+    Custom task class with automatic retry configuration
+    """
+    autoretry_for = (
+        ConnectionError,
+        TimeoutError,
+        Exception  # Retry on any exception
+    )
+    retry_kwargs = {
+        'max_retries': 3,
+        'countdown': 5  # Initial wait: 5 seconds
+    }
+    retry_backoff = True  # Exponential: 5s, 25s, 125s
+    retry_backoff_max = 600  # Max 10 minutes
+    retry_jitter = True  # Add randomness to prevent thundering herd
+
+
+@app.task(base=RetryableIngestionTask, bind=True)
 def process_document_task(self, file_path_str: str, config: dict):
+    """
+    Process document with automatic retry on failures
+    
+    Args:
+        self: Task instance (bind=True gives access)
+        file_path_str: Path to PDF file
+        config: Configuration dict
+    """
     db = next(get_db())
     filename = Path(file_path_str).name
+    retry_count = self.request.retries  # 0, 1, 2, or 3
     
     try:
-        # FIX #13: Add timing metrics
+        # Timing metrics
         import time
         task_start = time.time()
         
-        logger.info(f"Task Started: {filename}")
+        logger.info(f"{'🔄 RETRY' if retry_count > 0 else '🚀 START'} Task: {filename} (Attempt {retry_count + 1}/4)")
         
-        # Update Status to PROCESSING
+        # Get or create tracking record
         tracking = db.query(FileTracking).filter(FileTracking.filename == filename).first()
         if not tracking:
-            # Should exist from producer, but just in case
             tracking = FileTracking(filename=filename, status="PROCESSING")
             db.add(tracking)
         else:
-            tracking.status = "PROCESSING"
-            tracking.error_msg = None # Clear previous errors
+            # Update status with retry info
+            if retry_count > 0:
+                tracking.status = f"RETRY_{retry_count}"
+                logger.warning(f"⚠️ Retry attempt {retry_count}/3 for {filename}")
+            else:
+                tracking.status = "PROCESSING"
+            
+            tracking.error_msg = None  # Clear previous errors
             
         tracking.updated_at = datetime.utcnow()
         db.commit()
         
-        # 1. Parsing (Async wrapper)
+        # 1. Parsing
         ingestor = DocumentIngestion(config)
         
-        # Clean Async Run
         try:
-             # Create a new loop for this task execution to ensure isolation
-             loop = asyncio.new_event_loop()
-             asyncio.set_event_loop(loop)
-             chunks = loop.run_until_complete(ingestor.process_file(Path(file_path_str), check_processed=False))
-             loop.close()
+            # Create isolated event loop for async operations
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            chunks = loop.run_until_complete(
+                ingestor.process_file(Path(file_path_str), check_processed=False)
+            )
+            loop.close()
         except Exception as e:
-             logger.error(f"Async Loop Error: {e}")
-             raise e
-             
-        # 2. Embedding / Indexing
+            logger.error(f"Parsing error: {e}")
+            raise e  # Re-raise to trigger retry
+              
+        # 2. Embedding & Indexing
         if chunks:
             retriever = RetrievalService(config)
             
-            # FIX #1: Make vector operations and DB update ATOMIC
-            # Only mark COMPLETED after successful vector storage
+            # ATOMIC: Vector operations and DB update
             try:
-                # Delete existing vectors for this file before adding new ones
+                # Delete existing vectors first
                 retriever.delete_documents_by_source(filename)
                 
                 # Add new vectors
                 retriever.add_documents(chunks)
                 
-                # ONLY NOW mark as COMPLETED (after successful vector storage)
+                # Mark COMPLETED only after successful vector storage
                 tracking.status = "COMPLETED"
                 tracking.updated_at = datetime.utcnow()
                 db.commit()
                 
-                # FIX #13: Log timing metrics
+                # Log success with timing
                 task_duration = time.time() - task_start
-                logger.info(f"✅ Task Success: {filename}")
-                logger.info(f"📊 Total Processing Time: {task_duration:.2f}s")
+                logger.info(f"✅ SUCCESS: {filename} processed in {task_duration:.2f}s (after {retry_count} retries)")
                 return f"SUCCESS: {filename}"
+                
             except Exception as e_vector:
-                # Vector storage failed - rollback and mark as FAILED
-                logger.error(f"Vector storage failed for {filename}: {e_vector}")
+                # Vector storage failed - rollback
+                logger.error(f"Vector storage failed: {e_vector}")
                 db.rollback()
-                tracking.status = "FAILED"
+                
+                # Update tracking
+                tracking.status = "FAILED" if self.request.retries >= 3 else f"RETRY_{retry_count + 1}"
                 tracking.error_msg = f"Vector storage error: {str(e_vector)}"
                 tracking.updated_at = datetime.utcnow()
                 db.commit()
-                raise e_vector
+                
+                raise e_vector  # Re-raise to trigger retry
         else:
-            # 3. Handle Empty Content (Silent Failure)
-            error_msg = f"No chunks produced for {filename}. Triggering Retry."
+            # No chunks produced
+            error_msg = f"No chunks produced for {filename}"
             logger.warning(error_msg)
-            # Raise exception to enforce Celery Retry (max_retries=3)
-            raise ValueError(error_msg)
+            raise ValueError(error_msg)  # Trigger retry
         
     except Exception as exc:
-        logger.error(f"Task Failed: {filename} - {exc}")
+        logger.error(f"❌ Task error for {filename}: {exc}")
         db.rollback()
         
+        # Update tracking
         try:
             tracking = db.query(FileTracking).filter(FileTracking.filename == filename).first()
             if tracking:
-                tracking.status = "FAILED"
-                tracking.error_msg = str(exc)
+                # Check if max retries exhausted
+                if self.request.retries >= 3:
+                    # Final failure
+                    tracking.status = "FAILED"
+                    tracking.error_msg = str(exc)[:500]  # Truncate long errors
+                    logger.error(f"🔴 FINAL FAILURE for {filename} after 3 retries")
+                else:
+                    # Will retry
+                    tracking.status = f"RETRY_{retry_count + 1}"
+                    next_wait = 5 * (2 ** retry_count)  # Exponential backoff
+                    logger.warning(f"⏳ Will retry {filename} in ~{next_wait}s")
+                
                 tracking.updated_at = datetime.utcnow()
                 db.commit()
-        except:
-            pass # DB error during error handling
-            
-        # Retry logic
-        raise self.retry(exc=exc, countdown=60)
+        except Exception as e_tracking:
+            logger.error(f"Failed to update tracking: {e_tracking}")
+            pass
+        
+        db.close()
+        raise  # Re-raise to trigger Celery auto-retry mechanism
         
     finally:
         db.close()
+
