@@ -53,6 +53,13 @@ docker-compose up -d
 
 ### 4. Access Application
 
+**🌐 Live Demo (Try Now!):**
+- **Demo URL**: https://kason-scripless-bok.ngrok-free.dev
+- Test the system without setup
+- Note: This is a temporary demo instance
+
+---
+
 **Option A: Local Access**
 - **Streamlit UI**: http://localhost:8501
 - **Qdrant Dashboard**: http://localhost:6333/dashboard
