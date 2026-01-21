@@ -25,8 +25,8 @@ Production-ready Retrieval-Augmented Generation (RAG) system with advanced PDF p
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/Neel28iitm/RAG_project.git
-cd RAG_project
+git clone https://github.com/Neel28iitm/RAG-.git
+cd RAG-
 ```
 
 ### 2. Setup Environment
