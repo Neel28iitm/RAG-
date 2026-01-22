@@ -36,7 +36,62 @@ class ReportLogger:
 
 logger = ReportLogger()
 
+def check_infrastructure():
+    logger.log("\n" + "="*80)
+    logger.log("🏥 INFRASTRUCTURE HEALTH CHECK")
+    logger.log("="*80)
+    
+    overall_health = True
+    
+    # 1. API Keys & Env Vars
+    required_vars = [
+        "QDRANT_URL", "QDRANT_API_KEY", 
+        "S3_BUCKET_NAME", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+        "GOOGLE_API_KEY"
+    ]
+    
+    missing = [v for v in required_vars if not os.getenv(v)]
+    if missing:
+        logger.log(f"❌ Missing Environment Variables: {', '.join(missing)}")
+        overall_health = False
+    else:
+        logger.log("✅ Environment Variables: Present")
+
+    # 2. Qdrant Connectivity
+    try:
+        q_client = QdrantClient(
+            url=os.getenv("QDRANT_URL"),
+            api_key=os.getenv("QDRANT_API_KEY")
+        )
+        q_client.get_collections()
+        logger.log("✅ Qdrant Connection: Active")
+    except Exception as e:
+        logger.log(f"❌ Qdrant Connection Failed: {e}")
+        overall_health = False
+
+    # 3. S3 Connectivity
+    try:
+        s3 = boto3.client(
+            's3',
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            region_name=os.getenv("AWS_REGION", "us-east-1")
+        )
+        s3.list_buckets()
+        logger.log("✅ S3 Connection: Active")
+    except Exception as e:
+        logger.log(f"❌ S3 Connection Failed: {e}")
+        overall_health = False
+        
+    return overall_health
+
 def trace_system():
+    # Run Health Check First
+    if not check_infrastructure():
+        logger.log("\n🔴 CRITICAL INFRASTRUCTURE FAILURE. FIX ENV/CONNECTION BEFORE TRACING.")
+        logger.log("Skipping detailed trace...")
+        return
+
     logger.log("\n" + "="*80)
     logger.log("🕵️  SYSTEM INTEGRITY DASHBOARD")
     logger.log("="*80)
