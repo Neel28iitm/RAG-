@@ -160,9 +160,37 @@ src/
 - $0.30 per 100-page document
 - $0.0007 per query
 
-## 🔍 Monitoring
+## 🔍 Monitoring & Health Checks
 
-### Check Processing Status
+### System Health Dashboard
+
+```bash
+# Run comprehensive health check
+python scripts/trace_dashboard.py
+```
+
+This will verify:
+- ✅ Environment variables (API keys)
+- ✅ Qdrant connectivity
+- ✅ S3 access
+- ✅ Database integrity
+- ✅ Vector-to-S3 consistency
+
+**Output:** `trace_report.txt` with full system health status
+
+### Quick Status Check
+
+```bash
+# Check document processing status
+python scripts/check_status.py
+```
+
+Shows:
+- Total files in database
+- Completed/Failed/Processing counts
+- Recent errors
+
+### Check Processing Status (Database)
 
 ```bash
 docker exec rag_postgres psql -U rag_user -d rag_db -c "SELECT filename, status FROM file_tracking;"
@@ -179,6 +207,50 @@ docker logs -f rag_celery_worker
 ```bash
 curl http://localhost:6333/collections/rag_production
 ```
+
+## 🔌 Backend API Integration
+
+**Note for Developers:** The core backend (`src/app/`) is **completely decoupled** from Streamlit. You can integrate it into any framework.
+
+### FastAPI Integration Example
+
+```python
+from fastapi import FastAPI
+from src.app.retrieval import RetrievalService
+from src.app.generation import GenerationService
+from src.core.config import load_config
+
+app = FastAPI()
+config = load_config()
+
+retrieval = RetrievalService(config)
+generation = GenerationService(config)
+
+@app.post("/chat")
+def chat(query: str):
+    # Retrieve relevant documents
+    docs, metrics = retrieval.get_relevant_docs(query, top_k=10)
+    
+    # Generate answer
+    answer = generation.generate_answer(query, docs)
+    
+    return {
+        "answer": answer,
+        "sources": [d.metadata for d in docs],
+        "metrics": metrics
+    }
+```
+
+### Key Services
+
+| Service | File | Purpose |
+|---------|------|---------|
+| **Ingestion** | `src/app/ingestion.py` | PDF → Chunks |
+| **Retrieval** | `src/app/retrieval.py` | Hybrid Search + Reranking |
+| **Generation** | `src/app/generation.py` | LLM Answer Generation |
+| **Embedding** | `src/app/embedding.py` | Text → Vectors |
+
+All services are **Streamlit-independent** and ready for API wrapping.
 
 ## 🛠️ Troubleshooting
 
