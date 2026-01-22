@@ -44,6 +44,7 @@ nano .env
 - `GOOGLE_API_KEY`
 - `LLAMA_CLOUD_API_KEY`
 - `COHERE_API_KEY`
+- `QDRANT_URL` & `QDRANT_API_KEY` (for Qdrant Cloud)
 
 ### 3. Start All Services
 
