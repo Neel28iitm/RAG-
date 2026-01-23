@@ -9,13 +9,17 @@ from datetime import datetime
 import uuid
 import os
 
-# Production mein hum isse Postgres URL se replace kar denge
-DATABASE_URL = "sqlite:///./rag_app.db"
+# Production: Use Postgres if available, else fallback to SQLite
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./rag_app.db")
 
 Base = declarative_base()
 
-# check_same_thread: False is needed for SQLite when used with FastAPI/Streamlit reloading
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Engine Config
+connect_args = {}
+if "sqlite" in DATABASE_URL:
+    connect_args["check_same_thread"] = False
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():

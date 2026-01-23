@@ -8,6 +8,20 @@ services:
       - "6379:6379"
     restart: always
 
+  # 2. Database (PostgreSQL) - [NEW] Source of Truth
+  db:
+    image: postgres:15-alpine
+    container_name: rag_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=rag_user
+      - POSTGRES_PASSWORD=rag_password
+      - POSTGRES_DB=rag_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
   # 2. Vector Database (Qdrant) - REMOVED (Using Cloud)
   # qdrant:
   #   image: qdrant/qdrant
@@ -28,6 +42,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql://rag_user:rag_password@db:5432/rag_db
       - LLAMA_CLOUD_API_KEY=${LLAMA_CLOUD_API_KEY}
     volumes:
       - ./config:/app/config
@@ -35,6 +50,7 @@ services:
       - ./scripts:/app/scripts
     depends_on:
       - redis
+      - db
       # - qdrant
     restart: unless-stopped
 
@@ -49,10 +65,12 @@ services:
     environment:
       # - QDRANT_URL=http://qdrant:6333  <-- Removed to read from .env (Cloud)
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://rag_user:rag_password@db:5432/rag_db
     depends_on:
       - redis
       - worker
       - api
+      - db
     restart: always
 
   # 5. API Service (FastAPI Backend)
@@ -67,7 +85,12 @@ services:
     environment:
       # - QDRANT_URL=http://qdrant:6333  <-- Removed to read from .env (Cloud)
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://rag_user:rag_password@db:5432/rag_db
     depends_on:
       - redis
       - worker
+      - db
     restart: always
+
+volumes:
+  postgres_data:
