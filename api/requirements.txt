@@ -1,0 +1,7 @@
+# FastAPI and server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.10.6
+
+# CORS
+python-multipart==0.0.6

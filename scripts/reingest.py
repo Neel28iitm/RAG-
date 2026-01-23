@@ -16,6 +16,8 @@ from src.core.config import load_config
 # Load Env
 load_dotenv("config/.env")
 logger = setup_logger('reingest_logger')
+# Ensure app_logger is also setup effectively to show logs from ingestion.py
+setup_logger('app_logger')
 
 async def main():
     logger.info("🔥 STARTING FORCED RE-INGESTION (V2 Structure) 🔥")
@@ -27,23 +29,30 @@ async def main():
     retrieval.clear()
     
     # 2. Reset Tracking
-    logger.info("Step 2: Resetting file tracking...")
-    tracking_file = config['paths']['tracking_file']
-    if os.path.exists(tracking_file):
-        os.remove(tracking_file)
-        logger.info(f"Deleted {tracking_file}")
+    logger.info("Step 2: Resetting file tracking (DB)...")
+    from src.core.database import get_db, init_db
+    from src.core.models import FileTracking
+    
+    # Init DB (Create Tables)
+    init_db()
+    
+    db = next(get_db())
+    try:
+        db.query(FileTracking).delete()
+        db.commit()
+        logger.info("Deleted all tracking records from DB")
+    except Exception as e:
+        logger.error(f"Failed to clear DB: {e}")
+    finally:
+        db.close()
     
     # 3. Re-Ingest
-    logger.info("Step 3: Ingesting Documents with NEW Embeddings...")
+    logger.info("Step 3: Queuing Documents for Worker...")
     ingestion = DocumentIngestion(config)
-    chunks = await ingestion.ingest_documents()
+    await ingestion.ingest_documents()
     
-    if chunks:
-        logger.info(f"Step 4: Adding {len(chunks)} chunks to Qdrant...")
-        retrieval.add_documents(chunks)
-        logger.info("✅ Re-Ingestion Complete!")
-    else:
-        logger.warning("⚠️ No documents found to ingest.")
+    logger.info("✅ Re-Ingestion Tasks Queued! Ensure Celery Worker is running to process them.")
+    logger.info("Run: celery -A src.worker.celery_app worker --loglevel=info -P solo")
 
 if __name__ == "__main__":
     asyncio.run(main())

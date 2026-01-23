@@ -306,10 +306,12 @@ def main():
                             response_placeholder = st.empty()
                             full_response = ""
                             
-                            # Use stream_answer
+                            # Use stream_answer with visible delay
+                            import time
                             for chunk in generation_service.stream_answer(prompt, docs, chat_history=lc_history):
                                 full_response += chunk
                                 response_placeholder.markdown(full_response + "▌")
+                                time.sleep(0.02)  # 20ms delay for smooth visible streaming
                             
                             response_placeholder.markdown(full_response)
                             response_text = full_response

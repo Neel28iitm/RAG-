@@ -1,0 +1,41 @@
+# Step-by-Step GitHub Push Guide
+# SAFE WAY - API keys won't be exposed!
+
+## Step 1: Verify .env is Ignored
+git status | findstr ".env"
+# Should NOT show .env file
+
+## Step 2: Check What Will Be Committed
+git status
+# Review the list - .env should NOT be there
+
+## Step 3: Add ONLY Safe Files
+git add .gitignore
+git add .env.example
+git add .streamlit/
+git add src/
+git add config/settings.yaml
+git add requirements.txt
+git add README.md
+git add Dockerfile
+git add docker-compose.yml
+
+## Step 4: Commit
+git commit -m "Add Streamlit app with Cohere reranker"
+
+## Step 5: Create GitHub Repo
+# Go to: https://github.com/new
+# Repository name: "rag-streamlit-app"
+# Make it PRIVATE (recommended for now)
+# Don't initialize with README (you already have one)
+
+## Step 6: Connect and Push
+git remote add origin https://github.com/YOUR_USERNAME/rag-streamlit-app.git
+git branch -M main
+git push -u origin main
+
+## IMPORTANT: Double Check Before Push!
+# Run this to see what files will be pushed:
+git ls-files
+
+# If you see .env in the list: STOP and fix .gitignore!

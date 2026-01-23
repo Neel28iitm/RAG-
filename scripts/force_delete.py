@@ -15,8 +15,9 @@ def load_config():
         return yaml.safe_load(f)
 
 def main():
+    load_dotenv(".env")
     config = load_config()
-    qdrant_url = config['paths']['vector_store_config']['url']
+    qdrant_url = os.getenv("QDRANT_URL", config['paths']['vector_store_config']['url'])
     collection_name = config['paths']['vector_store_config']['collection_name']
     api_key = os.getenv("QDRANT_API_KEY")
 

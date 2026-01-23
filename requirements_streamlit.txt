@@ -1,0 +1,44 @@
+# Streamlit Cloud Compatible Requirements
+# Optimized for 1GB RAM limit
+
+# Core Framework
+streamlit==1.41.1
+
+# Google Generative AI (LLM & Embeddings)
+google-generativeai==0.8.4
+google-ai-generativelanguage==0.6.14
+
+# Cohere (Multilingual Reranker)
+cohere==5.20.1
+
+# Vector Database
+qdrant-client==1.12.1
+langchain-qdrant==0.2.1
+
+# LangChain Core
+langchain==0.3.18
+langchain-core==0.3.30
+langchain-community==0.3.18
+langchain-google-genai==2.0.10
+
+# Embeddings & NLP
+sentence-transformers==3.3.1
+
+# AWS S3
+boto3==1.42.25
+
+# PDF Processing  
+llama-parse==0.5.22
+pypdf==5.1.0
+
+# Database
+sqlalchemy==2.0.37
+alembic==1.18.0
+
+# Environment & Config
+python-dotenv==1.0.1
+pyyaml==6.0.2
+
+# Utilities
+requests==2.32.3
+pydantic==2.10.6

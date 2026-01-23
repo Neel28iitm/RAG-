@@ -51,17 +51,39 @@ class PDFRotationCorrector:
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             
             # Downscale for speed/cost
             img_small = image.resize((512, 512))
             
-            prompt = """Analyze this document image. Is it rotated? 
-            Return ONLY a number: 0, 90, 180, or 270. 
-            (90 means the text is sideways facing right, 270 facing left, 180 is upside down)."""
+            prompt = """
+            Analyze this document image. Return ONLY a JSON object with a single key 'rotation_angle'.
+            Valid values are 0, 90, 180, 270.
+            Example: {"rotation_angle": 90}
+            """
             
             response = model.generate_content([prompt, img_small])
-            angle = int(response.text.strip())
+            
+            # Parse JSON response
+            import json
+            try:
+                # Clean up response text (remove markdown blocks if any)
+                text = response.text.strip()
+                if text.startswith("```json"):
+                    text = text[7:]
+                if text.endswith("```"):
+                    text = text[:-3]
+                text = text.strip()
+                
+                data = json.loads(text)
+                angle = int(data.get("rotation_angle", 0))
+            except Exception:
+                # Fallback if valid JSON isn't returned, try direct int parse just in case
+                try:
+                    angle = int(response.text.strip())
+                except:
+                    angle = 0
+
             if angle in [0, 90, 180, 270]:
                 return angle
             return 0

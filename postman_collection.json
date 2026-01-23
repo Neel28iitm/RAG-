@@ -1,0 +1,100 @@
+{
+    "info": {
+        "_postman_id": "b5329888-7505-40b5-9b2c-634567890123",
+        "name": "Gemini RAG API",
+        "description": "API Collection for Gemini RAG Backend running on Port 8000",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Chat (Standard JSON)",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"query\": \"What is the noise limit for 100% load?\",\n    \"session_id\": \"test_session_1\",\n    \"top_k\": 5,\n    \"stream\": false\n}"
+                },
+                "url": {
+                    "raw": "http://192.168.1.8:8000/api/v1/chat",
+                    "protocol": "http",
+                    "host": [
+                        "192",
+                        "168",
+                        "1",
+                        "8"
+                    ],
+                    "port": "8000",
+                    "path": [
+                        "api",
+                        "v1",
+                        "chat"
+                    ]
+                },
+                "description": "Standard Chat Endpoint returning full JSON response."
+            },
+            "response": []
+        },
+        {
+            "name": "Chat (Streaming SSE)",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"query\": \"Explain the acoustic requirements.\",\n    \"session_id\": \"test_session_stream\",\n    \"top_k\": 5,\n    \"stream\": true\n}"
+                },
+                "url": {
+                    "raw": "http://192.168.1.8:8000/api/v1/chat",
+                    "protocol": "http",
+                    "host": [
+                        "192",
+                        "168",
+                        "1",
+                        "8"
+                    ],
+                    "port": "8000",
+                    "path": [
+                        "api",
+                        "v1",
+                        "chat"
+                    ]
+                },
+                "description": "Streaming Endpoint returning Server-Sent Events (SSE)."
+            },
+            "response": []
+        },
+        {
+            "name": "Health Check / Root",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "http://192.168.1.8:8000/",
+                    "protocol": "http",
+                    "host": [
+                        "192",
+                        "168",
+                        "1",
+                        "8"
+                    ],
+                    "port": "8000",
+                    "path": [
+                        ""
+                    ]
+                }
+            },
+            "response": []
+        }
+    ]
+}

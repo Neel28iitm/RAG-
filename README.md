@@ -11,6 +11,20 @@ Production-ready Retrieval-Augmented Generation (RAG) system with advanced PDF p
 - **Parent-Document Retrieval**: Optimized for tables and long-form content
 - **Production-Ready**: Celery workers, Redis caching, PostgreSQL tracking
 
+## 💻 System Requirements
+
+### Ubuntu/Debian Setup
+Before running the app, you must install Redis Server (critical for the Celery worker queue):
+```bash
+sudo apt update
+sudo apt install redis-server -y
+```
+
+### AWS Setup
+For EC2 deployments, it is highly recommended to use an IAM Role instead of hardcoded keys:
+- **IAM Role**: Attach an IAM Role with `AmazonS3FullAccess` to your EC2 instance.
+- This allows the app to authenticate automatically without needing `AWS_ACCESS_KEY_ID` in `.env`.
+
 ## 📋 Prerequisites
 
 - Docker & Docker Compose
