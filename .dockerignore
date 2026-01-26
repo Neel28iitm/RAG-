@@ -1,31 +1,50 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 .Python
+
+# Virtual environments
 env/
 venv/
 .venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.git
-.mypy_cache
-.pytest_cache
-.hypothesis
+ENV/
 
-# RAG specific
-data/
-logs/
-debug_output.txt
-debug_output_2.txt
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Data files (heavy files image mein mat daalo)
+data/*.pdf
+data/*.csv
+*.db
+*.sqlite
 rag_app.db
-qdrant_storage/
-evaluation_results.csv
+
+# Logs
+*.log
+logs/
+debug_output*.txt
+
+# Environment files
+.env
+.env.local
+
+# Docker files (recursion avoid karne ke liye)
+Dockerfile*
+docker-compose*.yml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large files
+*.tar.gz
+*.zip
+*.rar

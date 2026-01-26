@@ -1,96 +1,173 @@
 version: '3.8'
 
 services:
-  # 1. Message Broker (Redis)
-  redis:
-    image: redis:7-alpine
+  # ============================================
+  # Streamlit Application
+  # ============================================
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rag-app:latest
+    container_name: rag_streamlit
+    restart: unless-stopped
     ports:
-      - "6379:6379"
-    restart: always
+      - "8501:8501"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LLAMA_CLOUD_API_KEY=${LLAMA_CLOUD_API_KEY}
+      - COHERE_API_KEY=${COHERE_API_KEY}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
+      - REDIS_URL=redis://redis:6379/0
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 256M
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - rag-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # 2. Database (PostgreSQL) - [NEW] Source of Truth
-  db:
+  # ============================================
+  # Celery Worker
+  # ============================================
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rag-app:latest
+    container_name: rag_celery
+    restart: unless-stopped
+    # Ensure src.worker.celery_app path is correct in your project
+    command: celery -A src.worker.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LLAMA_CLOUD_API_KEY=${LLAMA_CLOUD_API_KEY}
+      - COHERE_API_KEY=${COHERE_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
+      - REDIS_URL=redis://redis:6379/0
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          memory: 512M
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - rag-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
     image: postgres:15-alpine
     container_name: rag_postgres
-    ports:
-      - "5432:5432"
+    restart: unless-stopped
     environment:
+      - POSTGRES_DB=rag_db
       - POSTGRES_USER=rag_user
       - POSTGRES_PASSWORD=rag_password
-      - POSTGRES_DB=rag_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U rag_user" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
 
-  # 2. Vector Database (Qdrant) - REMOVED (Using Cloud)
+  # ============================================
+  # Redis Cache
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: rag_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          memory: 64M
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - rag-network
+  # ============================================
+  # Qdrant (Optional - Use Cloud Instead)
+  # ============================================
+  # Uncomment below if self-hosting Qdrant
   # qdrant:
-  #   image: qdrant/qdrant
+  #   image: qdrant/qdrant:latest
+  #   container_name: rag_qdrant
+  #   restart: unless-stopped
   #   ports:
   #     - "6333:6333"
   #   volumes:
-  #     - ./qdrant_storage:/qdrant/storage
-  #   restart: always
+  #     - qdrant_data:/qdrant/storage
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 1G
+  #   networks:
+  #     - rag-network
 
-  # 3. Celery Worker (The Processor)
-  # 3. Celery Worker (The Processor)
-  worker:
-    build: .
-    command: celery -A src.worker.celery_app worker --loglevel=info -P threads --concurrency=4
-    env_file: .env
-    environment:
-      # - QDRANT_URL=http://qdrant:6333  <-- Removed to read from .env (Cloud)
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DATABASE_URL=postgresql://rag_user:rag_password@db:5432/rag_db
-      - LLAMA_CLOUD_API_KEY=${LLAMA_CLOUD_API_KEY}
-    volumes:
-      - ./config:/app/config
-      - ./src:/app/src
-      - ./scripts:/app/scripts
-    depends_on:
-      - redis
-      - db
-      # - qdrant
-    restart: unless-stopped
-
-  # 4. Main App (Streamlit Frontend)
-  app:
-    build: .
-    # Runs Streamlit on 8501
-    command: python main.py run
-    ports:
-      - "8501:8501"
-    env_file: .env
-    environment:
-      # - QDRANT_URL=http://qdrant:6333  <-- Removed to read from .env (Cloud)
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://rag_user:rag_password@db:5432/rag_db
-    depends_on:
-      - redis
-      - worker
-      - api
-      - db
-    restart: always
-
-  # 5. API Service (FastAPI Backend)
-  api:
-    build: .
-    # Runs FastAPI on 8000
-    command: python api_handover.py
-    ports:
-      - "8000:8000"
-      - "6006:6006" # Arize Phoenix UI
-    env_file: .env
-    environment:
-      # - QDRANT_URL=http://qdrant:6333  <-- Removed to read from .env (Cloud)
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://rag_user:rag_password@db:5432/rag_db
-    depends_on:
-      - redis
-      - worker
-      - db
-    restart: always
-
+  # ============================================
+  # Volumes (Data persistence)
+  # ============================================
 volumes:
   postgres_data:
+    driver: local
+  # qdrant_data:
+  #   driver: local
+
+  # ============================================
+  # Networks
+  # ============================================
+networks:
+  rag-network:
+    driver: bridge
