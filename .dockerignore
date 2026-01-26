@@ -1,44 +1,44 @@
-# Python cache
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .Python
+
+# Virtual environments
 env/
 venv/
 .venv/
-pip-log.txt
-pip-delete-this-directory.txt
+ENV/
 
 # Git
 .git/
 .gitignore
 
-# Data files
-data/
-*.db
-*.sqlite
-*.pdf
-*.csv
-
-# Logs
-logs/
-*.log
-
-# Environment files
-.env
-.env.*
-
-# IDE files
+# IDE
 .vscode/
 .idea/
-.settings/
-.project
-.pydevproject
+*.swp
+
+# Data files
+data/*.pdf
+data/*.csv
+*.db
+*.sqlite
+rag_app.db
+debug_output*.txt
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
 
 # Docker
-Dockerfile
-Dockerfile.prod
-docker-compose.yml
-docker-compose.prod.yml
-.dockerignore
+docker-compose*.yml
+
+# Large files
+*.tar.gz
+*.zip

@@ -1,60 +1,68 @@
 version: '3.8'
 
 services:
-  # 1. Streamlit App
   streamlit:
     build:
       context: .
       dockerfile: Dockerfile.prod
-    image: rag-app-prod:latest
-    container_name: rag_streamlit_prod
+    image: ${DOCKER_USERNAME}/rag-app:${VERSION:-latest}
+    container_name: rag_streamlit
     restart: unless-stopped
     ports:
       - "8501:8501"
     environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LLAMA_CLOUD_API_KEY=${LLAMA_CLOUD_API_KEY}
+      - COHERE_API_KEY=${COHERE_API_KEY}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
       - REDIS_URL=redis://redis:6379/0
-      # All other API keys should be loaded from .env
-    env_file:
-      - .env
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
-        reservations:
           memory: 512M
+        reservations:
+          memory: 256M
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     networks:
-      - rag_prod_net
+      - rag-network
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  # 2. Celery Worker (Uses same image)
   celery_worker:
     build:
       context: .
       dockerfile: Dockerfile.prod
-    image: rag-app-prod:latest
-    container_name: rag_worker_prod
+    image: ${DOCKER_USERNAME}/rag-app:${VERSION:-latest}
+    container_name: rag_celery
     restart: unless-stopped
     command: celery -A src.worker.celery_app worker --loglevel=info --concurrency=2
     environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LLAMA_CLOUD_API_KEY=${LLAMA_CLOUD_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
       - REDIS_URL=redis://redis:6379/0
-    env_file:
-      - .env
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '2.0'
           memory: 1G
         reservations:
           memory: 512M
@@ -64,71 +72,62 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - rag_prod_net
+      - rag-network
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  # 3. PostgreSQL
   postgres:
     image: postgres:15-alpine
-    container_name: rag_postgres_prod
+    container_name: rag_postgres
     restart: unless-stopped
     environment:
       - POSTGRES_DB=rag_db
       - POSTGRES_USER=rag_user
       - POSTGRES_PASSWORD=rag_password
     volumes:
-      - postgres_data_prod:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     deploy:
       resources:
         limits:
           cpus: '0.5'
-          memory: 512M
+          memory: 256M
+        reservations:
+          memory: 128M
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U rag_user" ]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - rag_prod_net
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      - rag-network
 
-  # 4. Redis
   redis:
     image: redis:7-alpine
-    container_name: rag_redis_prod
+    container_name: rag_redis
     restart: unless-stopped
-    # Add persistence if needed, or just cache
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
     deploy:
       resources:
         limits:
           cpus: '0.5'
-          memory: 256M
+          memory: 128M
+        reservations:
+          memory: 64M
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 5
     networks:
-      - rag_prod_net
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      - rag-network
 
 volumes:
-  postgres_data_prod:
+  postgres_data:
     driver: local
 
 networks:
-  rag_prod_net:
+  rag-network:
     driver: bridge
