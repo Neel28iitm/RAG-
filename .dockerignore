@@ -1,50 +1,44 @@
 # Python cache
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
-
-# Virtual environments
 env/
 venv/
 .venv/
-ENV/
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Git
 .git/
 .gitignore
 
-# IDE
-.vscode/
-.idea/
-*.swp
-
-# Data files (heavy files image mein mat daalo)
-data/*.pdf
-data/*.csv
+# Data files
+data/
 *.db
 *.sqlite
-rag_app.db
+*.pdf
+*.csv
 
 # Logs
-*.log
 logs/
-debug_output*.txt
+*.log
 
 # Environment files
 .env
-.env.local
+.env.*
 
-# Docker files (recursion avoid karne ke liye)
-Dockerfile*
-docker-compose*.yml
+# IDE files
+.vscode/
+.idea/
+.settings/
+.project
+.pydevproject
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# Large files
-*.tar.gz
-*.zip
-*.rar
+# Docker
+Dockerfile
+Dockerfile.prod
+docker-compose.yml
+docker-compose.prod.yml
+.dockerignore
