@@ -3,10 +3,11 @@ FastAPI REST API for RAG System
 Swagger UI: http://localhost:8000/docs
 ReDoc: http://localhost:8000/redoc
 """
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List
+from sqlalchemy.orm import Session
 import sys
 import os
 from dotenv import load_dotenv
@@ -19,6 +20,8 @@ load_dotenv('.env')
 from src.app.retrieval import RetrievalService
 from src.app.generation import GenerationService
 from src.core.config import load_config
+from src.core.database import get_db, init_db
+from src.core.models import FileTracking
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -37,6 +40,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize database
+init_db()
 
 # Load config and initialize services
 config = load_config()
@@ -85,6 +91,28 @@ class QueryResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     services: dict
+
+class DocumentStatusResponse(BaseModel):
+    filename: str = Field(..., description="Document filename")
+    status: str = Field(..., description="Ingestion status: PENDING, PROCESSING, COMPLETED, FAILED")
+    created_at: str = Field(..., description="When the document was added")
+    updated_at: str = Field(..., description="Last status update time")
+    error_msg: Optional[str] = Field(None, description="Error message if status is FAILED")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "filename": "company_policy.pdf",
+                "status": "COMPLETED",
+                "created_at": "2026-01-28T10:00:00",
+                "updated_at": "2026-01-28T10:05:00",
+                "error_msg": None
+            }
+        }
+
+class DocumentListResponse(BaseModel):
+    count: int = Field(..., description="Total number of documents")
+    documents: List[DocumentStatusResponse] = Field(..., description="List of all documents with status")
 
 # API Endpoints
 
@@ -200,6 +228,70 @@ async def query_rag(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.get("/document/status/{docname}", response_model=DocumentStatusResponse, tags=["Documents"])
+async def get_document_status(docname: str, db: Session = Depends(get_db)):
+    """
+    Check the ingestion status of a specific document
+    
+    **Status Values:**
+    - `PENDING`: Document is queued for ingestion
+    - `PROCESSING`: Document is currently being ingested
+    - `COMPLETED`: Document has been successfully ingested and is searchable
+    - `FAILED`: Document ingestion failed (check error_msg for details)
+    
+    **Use Case:**
+    Your developer can poll this endpoint after uploading a document to check if ingestion is complete before running queries.
+    """
+    try:
+        file_record = db.query(FileTracking).filter(FileTracking.filename == docname).first()
+        
+        if not file_record:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Document '{docname}' not found in tracking system. It may not have been uploaded yet."
+            )
+        
+        return DocumentStatusResponse(
+            filename=file_record.filename,
+            status=file_record.status,
+            created_at=file_record.created_at.isoformat() if file_record.created_at else None,
+            updated_at=file_record.updated_at.isoformat() if file_record.updated_at else None,
+            error_msg=file_record.error_msg
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get document status: {str(e)}")
+
+@app.get("/documents/status", response_model=DocumentListResponse, tags=["Documents"])
+async def get_all_documents_status(db: Session = Depends(get_db)):
+    """
+    Get ingestion status of ALL documents in the system
+    
+    Returns a list of all documents with their current ingestion status.
+    Useful for dashboard views or batch status checks.
+    """
+    try:
+        all_files = db.query(FileTracking).all()
+        
+        documents = [
+            DocumentStatusResponse(
+                filename=file_record.filename,
+                status=file_record.status,
+                created_at=file_record.created_at.isoformat() if file_record.created_at else None,
+                updated_at=file_record.updated_at.isoformat() if file_record.updated_at else None,
+                error_msg=file_record.error_msg
+            )
+            for file_record in all_files
+        ]
+        
+        return DocumentListResponse(
+            count=len(documents),
+            documents=documents
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get documents status: {str(e)}")
 
 @app.get("/documents", tags=["Documents"])
 async def list_documents():

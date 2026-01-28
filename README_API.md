@@ -5,46 +5,128 @@
 This API connects to the **RAG System** backed by **Qdrant Cloud** (Vector Store) and **AWS S3** (Document Store).
 It provides answers based on the uploaded PDF documents using Hybrid Search (Dense + Sparse).
 
-## 📡 Endpoint Details
-- **Base URL**: `http://localhost:8000`
-- **Endpoint**: `POST /api/v1/chat`
-- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-## 📝 Request Format
+---
 
-**Body:**
+## 📡 API Endpoints
+
+### 1️⃣ **Document Status API** (NEW! 🎉)
+
+#### Check Single Document Status
+- **Endpoint**: `GET /document/status/{docname}`
+- **Use Case**: Track if a specific file has been ingested or not
+
+**Example Request:**
+```bash
+curl -X GET "http://localhost:8000/document/status/company_policy.pdf"
+```
+
+**Response:**
 ```json
 {
-  "query": "Company ki leave policy kya hai?",
-  "session_id": "user_123_chat_01",
-  "top_k": 5,
-  "stream": false
+  "filename": "company_policy.pdf",
+  "status": "COMPLETED",
+  "created_at": "2026-01-28T10:00:00",
+  "updated_at": "2026-01-28T10:05:00",
+  "error_msg": null
 }
 ```
 
-## ✅ Informative Response (Standard)
+**Status Values:**
+- `PENDING` - Document queued for ingestion
+- `PROCESSING` - Document currently being ingested
+- `COMPLETED` - Ingestion successful, ready for queries ✅
+- `FAILED` - Ingestion failed (check `error_msg`)
+
+---
+
+#### Get All Documents Status
+- **Endpoint**: `GET /documents/status`
+- **Use Case**: Get ingestion status of ALL documents (dashboard view)
+
+**Example Request:**
+```bash
+curl -X GET "http://localhost:8000/documents/status"
+```
+
+**Response:**
+```json
+{
+  "count": 2,
+  "documents": [
+    {
+      "filename": "company_policy.pdf",
+      "status": "COMPLETED",
+      "created_at": "2026-01-28T10:00:00",
+      "updated_at": "2026-01-28T10:05:00",
+      "error_msg": null
+    },
+    {
+      "filename": "HR_Handbook.pdf",
+      "status": "PROCESSING",
+      "created_at": "2026-01-28T10:10:00",
+      "updated_at": "2026-01-28T10:10:30",
+      "error_msg": null
+    }
+  ]
+}
+```
+
+---
+
+### 2️⃣ **Query API** (Question Answering)
+
+- **Endpoint**: `POST /query`
+- **Use Case**: Ask questions from ingested documents
+
+**Request Format:**
+```json
+{
+  "query": "Company ki leave policy kya hai?",
+  "chat_history": null,
+  "top_k": 10
+}
+```
+
+**Response (Standard):**
 ```json
 {
   "answer": "Aap saal mein 15 paid leaves le sakte hain.",
   "sources": [
     {
-      "title": "HR_Policy_2024.pdf",
-      "page": 12,
-      "snippet": "...employees are entitled to 15 days of annual leave..."
+      "document": "HR_Policy_2024.pdf",
+      "page": "12"
     }
   ],
-  "metadata": {
-    "response_time": "0.80s",
-    "tokens_used": 0
+  "metrics": {
+    "retrieval_time": 3.2,
+    "reranking_time": 0.8,
+    "total_time": 4.5
   }
 }
 ```
 
-## 🌊 Streaming Mode
-Set `"stream": true` in request.
-Returns `text/event-stream` with these events:
-1. `event: sources` -> JSON data of sources.
-2. `data: ...` -> Text chunks.
-3. `event: done` -> Stream finished.
+---
+
+## 💡 Developer Workflow Example
+
+```bash
+# Step 1: Upload document (via your upload API - not shown here)
+# ... upload company_policy.pdf ...
+
+# Step 2: Check if ingestion is complete
+curl -X GET "http://localhost:8000/document/status/company_policy.pdf"
+# Response: {"status": "PROCESSING"}
+
+# Step 3: Wait and check again
+sleep 60
+curl -X GET "http://localhost:8000/document/status/company_policy.pdf"
+# Response: {"status": "COMPLETED"}
+
+# Step 4: Now query the document!
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is the leave policy?", "top_k": 10}'
+```
 
 ---
 
@@ -56,9 +138,27 @@ Returns `text/event-stream` with these events:
 3.  **Parent Retrieval**: Fetches full context from **S3**.
 4.  **Generation**: **Gemini 2.5 Flash** synthesizes the answer.
 
-## 🛠️ Running Locally (Docker)
-Ensure Docker is running:
+---
+
+## 🛠️ Running Locally
+
+### Start API Server
+```bash
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Or with Docker
 ```bash
 docker-compose up -d api
 ```
-The API will be available at port **8000**.
+
+### Access Swagger UI
+**Interactive API docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
+
+## 📚 Additional Endpoints
+
+- `GET /` - API status
+- `GET /health` - Health check (Qdrant, LLM, Reranker status)
+- `GET /documents` - List all indexed documents
