@@ -3,13 +3,14 @@ FastAPI REST API for RAG System
 Swagger UI: http://localhost:8000/docs
 ReDoc: http://localhost:8000/redoc
 """
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from sqlalchemy.orm import Session
 import sys
 import os
+import boto3
 from dotenv import load_dotenv
 
 # Add project root to path
@@ -22,6 +23,7 @@ from src.app.generation import GenerationService
 from src.core.config import load_config
 from src.core.database import get_db, init_db
 from src.core.models import FileTracking
+from src.worker.tasks import process_document_task
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -114,6 +116,11 @@ class DocumentListResponse(BaseModel):
     count: int = Field(..., description="Total number of documents")
     documents: List[DocumentStatusResponse] = Field(..., description="List of all documents with status")
 
+class UploadResponse(BaseModel):
+    filename: str = Field(..., description="Name of the uploaded file")
+    status: str = Field(..., description="Initial status (PENDING)")
+    message: str = Field(..., description="Success message")
+
 # API Endpoints
 
 @app.get("/", tags=["Health"])
@@ -150,6 +157,80 @@ async def health_check():
         }
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
+
+@app.post("/upload", response_model=UploadResponse, tags=["Documents"])
+async def upload_document(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a PDF document and trigger automatic ingestion.
+    
+    **Process:**
+    1. Validates file type (must be PDF)
+    2. Uploads file to S3 bucket (raw/ folder)
+    3. Creates database tracking record (PENDING)
+    4. Triggers background Celery task for processing
+    """
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    
+    try:
+        # 1. Upload to S3
+        bucket_name = os.getenv("S3_BUCKET_NAME", "neel-rag-data-2026")
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            region_name=os.getenv("AWS_REGION", "us-east-1")
+        )
+        
+        s3_key = f"raw/{file.filename}"
+        
+        # Seek to start of file if needed
+        await file.seek(0)
+        
+        # Upload
+        s3_client.upload_fileobj(
+            file.file,
+            bucket_name,
+            s3_key
+        )
+        
+        # 2. Update Database Tracking
+        from datetime import datetime
+        
+        # Check if exists
+        existing = db.query(FileTracking).filter(FileTracking.filename == file.filename).first()
+        if existing:
+            existing.status = "PENDING"
+            existing.updated_at = datetime.utcnow()
+            existing.error_msg = None
+            db.commit()
+        else:
+            new_tracking = FileTracking(
+                filename=file.filename,
+                status="PENDING",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(new_tracking)
+            db.commit()
+        
+        # 3. Trigger Celery Task
+        # We need to pass the FULL CONFIG to the task
+        # Since we loaded config globally, we can use it
+        process_document_task.delay(s3_key, config)
+        
+        return UploadResponse(
+            filename=file.filename,
+            status="PENDING",
+            message=f"Successfully uploaded {file.filename} and triggered ingestion."
+        )
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/query", response_model=QueryResponse, tags=["RAG"])
 async def query_rag(
