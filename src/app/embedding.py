@@ -40,7 +40,8 @@ class EmbeddingService:
             logger.info(f"Initializing Embedding Model: {self.config['embedding']['model_name']}")
             base_model = GoogleGenerativeAIEmbeddings(
                 model=self.config['embedding']['model_name'],
-                google_api_key=os.getenv("GOOGLE_API_KEY")
+                google_api_key=os.getenv("GOOGLE_API_KEY"),
+                output_dimensionality=768  # Required for gemini-embedding-001 to match Qdrant config
             )
             
             # --- Apply Exponential Backoff ---

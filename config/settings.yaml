@@ -18,7 +18,7 @@ llm:
   max_tokens: 4096
 
 embedding:
-  model_name: "models/text-embedding-004"
+  model_name: "models/gemini-embedding-001"
 
 retrieval:
   top_k: 10 # Final results to show user (after reranking)

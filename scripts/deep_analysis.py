@@ -59,11 +59,12 @@ def test_pipeline_determinism():
     # TEST 2: EMBEDDING GENERATION
     # =========================================================================
     print("\n" + "="*100)
-    print("TEST 2: EMBEDDING GENERATION (Google text-embedding-004)")
+    print("TEST 2: EMBEDDING GENERATION (Google gemini-embedding-001)")
     print("="*100)
     
     embedding_model = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004"
+        model="models/gemini-embedding-001",
+        output_dimensionality=768  # Match Qdrant config
     )
     
     embeddings = []
