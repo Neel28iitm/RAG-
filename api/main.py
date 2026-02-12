@@ -23,7 +23,7 @@ from src.app.generation import GenerationService
 from src.core.config import load_config
 from src.core.database import get_db, init_db
 from src.core.models import FileTracking
-from src.worker.tasks import process_document_task
+from src.worker.tasks import process_document_task, process_query_task
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -120,6 +120,42 @@ class UploadResponse(BaseModel):
     filename: str = Field(..., description="Name of the uploaded file")
     status: str = Field(..., description="Initial status (PENDING)")
     message: str = Field(..., description="Success message")
+
+class AsyncQueryResponse(BaseModel):
+    task_id: str = Field(..., description="Unique task ID for tracking")
+    status: str = Field(..., description="Initial status (PENDING)")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "task_id": "abc-123-def-456",
+                "status": "PENDING"
+            }
+        }
+
+class QueryStatusResponse(BaseModel):
+    task_id: str = Field(..., description="Task ID")
+    status: str = Field(..., description="Task status: PENDING, PROCESSING, SUCCESS, FAILURE")
+    progress: int = Field(..., description="Progress percentage (0-100)", ge=0, le=100)
+    message: Optional[str] = Field(None, description="Current stage message")
+    answer: Optional[str] = Field(None, description="Generated answer (only when SUCCESS)")
+    sources: Optional[List[Source]] = Field(None, description="Source documents (only when SUCCESS)")
+    metrics: Optional[dict] = Field(None, description="Performance metrics (only when SUCCESS)")
+    error: Optional[str] = Field(None, description="Error message (only when FAILURE)")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "task_id": "abc-123",
+                "status": "PROCESSING",
+                "progress": 70,
+                "message": "Generating answer...",
+                "answer": None,
+                "sources": None,
+                "metrics": None,
+                "error": None
+            }
+        }
 
 # API Endpoints
 
@@ -231,6 +267,172 @@ async def upload_document(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/query/async", response_model=AsyncQueryResponse, tags=["RAG"])
+async def query_async(
+    request: QueryRequest,
+    x_api_key: Optional[str] = Header(None, description="Optional API key for authentication")
+):
+    """
+    **ASYNC Query Endpoint** - Submit query and get task_id instantly
+    
+    **Process:**
+    1. Receives query and returns task_id immediately (<100ms)
+    2. Processing happens in background via Celery
+    3. Frontend polls `/query/status/{task_id}` every 2 seconds
+    
+    **User Experience:**
+    ```
+    User clicks "Ask" 
+       ↓
+    Get task_id: "abc-123" (instant!)
+       ↓
+    Poll every 2s:
+    - "⏳ Processing... 30% done"
+    - "⏳ Analyzing... 70% done"
+    - "✅ Complete! Here's your answer"
+    ```
+    
+    **Recommended for:**
+    - Production frontend applications
+    - Better UX with progress tracking
+    - Non-blocking user interface
+    
+    **See also:** `/query/status/{task_id}` for polling
+    """
+    try:
+        # Submit task to Celery (returns immediately)
+        task = process_query_task.delay(
+            query=request.query,
+            config=config,
+            top_k=request.top_k or 10,
+            chat_history=request.chat_history
+        )
+        
+        return AsyncQueryResponse(
+            task_id=task.id,
+            status="PENDING"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to submit query: {str(e)}")
+
+@app.get("/query/status/{task_id}", response_model=QueryStatusResponse, tags=["RAG"])
+async def query_status(task_id: str):
+    """
+    **Poll Query Status** - Check progress and get results
+    
+    **Status Values:**
+    - `PENDING`: Task queued, not started yet
+    - `PROCESSING`: Task running (check `progress` field)
+    - `SUCCESS`: Task complete (check `answer` and `sources`)
+    - `FAILURE`: Task failed (check `error` field)
+    
+    **Progress Stages:**
+    - 0-10%: Starting
+    - 10-30%: Searching documents
+    - 30-70%: Analyzing and reranking
+    - 70-100%: Generating answer
+    - 100%: Complete!
+    
+    **Usage:**
+    Frontend should poll this endpoint every 2 seconds until `status` is `SUCCESS` or `FAILURE`.
+    
+    **Example JavaScript:**
+    ```javascript
+    const interval = setInterval(async () => {
+      const res = await fetch(`/query/status/${task_id}`);
+      const data = await res.json();
+      
+      if (data.status === 'SUCCESS') {
+        clearInterval(interval);
+        showAnswer(data.answer, data.sources);
+      } else if (data.status === 'FAILURE') {
+        clearInterval(interval);
+        showError(data.error);
+      } else {
+        showProgress(data.progress, data.message);
+      }
+    }, 2000);
+    ```
+    """
+    try:
+        from celery.result import AsyncResult
+        
+        # Get task result
+        result = AsyncResult(task_id, app=process_query_task.app)
+        
+        # Map Celery states to our response
+        if result.state == 'PENDING':
+            return QueryStatusResponse(
+                task_id=task_id,
+                status="PENDING",
+                progress=0,
+                message="Task queued, waiting to start..."
+            )
+        
+        elif result.state == 'PROCESSING':
+            # Get progress from task metadata
+            meta = result.info or {}
+            return QueryStatusResponse(
+                task_id=task_id,
+                status="PROCESSING",
+                progress=meta.get('progress', 0),
+                message=meta.get('message', 'Processing...')
+            )
+        
+        elif result.state == 'SUCCESS':
+            # Task complete - return full result
+            task_result = result.result
+            
+            # Check if task returned error (no documents found)
+            if isinstance(task_result, dict) and 'error' in task_result:
+                return QueryStatusResponse(
+                    task_id=task_id,
+                    status="FAILURE",
+                    progress=100,
+                    error=task_result.get('message', 'Query processing failed')
+                )
+            
+            # Convert sources to Source models
+            sources_list = [
+                Source(document=s['document'], page=s.get('page'))
+                for s in task_result.get('sources', [])
+            ]
+            
+            return QueryStatusResponse(
+                task_id=task_id,
+                status="SUCCESS",
+                progress=100,
+                message="Complete!",
+                answer=task_result.get('answer'),
+                sources=sources_list,
+                metrics=task_result.get('metrics')
+            )
+        
+        elif result.state == 'FAILURE':
+            # Task failed
+            meta = result.info or {}
+            error_msg = meta.get('error', str(result.info)) if meta else str(result.info)
+            
+            return QueryStatusResponse(
+                task_id=task_id,
+                status="FAILURE",
+                progress=100,
+                error=error_msg
+            )
+        
+        else:
+            # Unknown state
+            return QueryStatusResponse(
+                task_id=task_id,
+                status=result.state,
+                progress=0,
+                message=f"Unknown state: {result.state}"
+            )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
 
 @app.post("/query", response_model=QueryResponse, tags=["RAG"])
 async def query_rag(

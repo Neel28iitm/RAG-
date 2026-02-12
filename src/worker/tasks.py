@@ -7,10 +7,148 @@ from celery.utils.log import get_task_logger
 from src.worker.celery_app import app
 from src.app.ingestion import DocumentIngestion
 from src.app.retrieval import RetrievalService
+from src.app.generation import GenerationService
 from src.core.database import get_db
 from src.core.models import FileTracking
 
 logger = get_task_logger(__name__)
+
+
+@app.task(bind=True)
+def process_query_task(self, query: str, config: dict, top_k: int = 10, chat_history: list = None):
+    """
+    Process RAG query asynchronously with progress tracking
+    
+    Args:
+        self: Task instance (bind=True for progress updates)
+        query: User question
+        config: RAG configuration dict
+        top_k: Number of documents to retrieve
+        chat_history: Previous chat messages (optional)
+    
+    Returns:
+        dict: {
+            "answer": str,
+            "sources": list,
+            "metrics": dict
+        }
+    
+    Progress Stages:
+        0%: Task started
+        30%: Document retrieval complete
+        70%: Reranking complete
+        100%: Answer generation complete
+    """
+    try:
+        import time
+        
+        # Stage 0: Initialize (0%)
+        self.update_state(
+            state='PROCESSING',
+            meta={'progress': 0, 'message': 'Starting query processing...'}
+        )
+        logger.info(f"🔍 Query task started: {query[:50]}...")
+        
+        # Stage 1: Retrieval (0% → 30%)
+        self.update_state(
+            state='PROCESSING',
+            meta={'progress': 10, 'message': 'Searching documents...'}
+        )
+        
+        start_retrieval = time.time()
+        retrieval_service = RetrievalService(config)
+        
+        # Convert chat_history to proper format if needed
+        from langchain_core.messages import HumanMessage, AIMessage
+        lc_history = []
+        if chat_history:
+            for msg in chat_history:
+                if msg.get("role") == "user":
+                    lc_history.append(HumanMessage(content=msg["content"]))
+                elif msg.get("role") == "assistant":
+                    lc_history.append(AIMessage(content=msg["content"]))
+        
+        docs, metrics = retrieval_service.get_relevant_docs(
+            query=query,
+            top_k=top_k,
+            chat_history=lc_history if lc_history else None
+        )
+        retrieval_time = time.time() - start_retrieval
+        
+        if not docs:
+            self.update_state(
+                state='FAILURE',
+                meta={'progress': 100, 'error': 'No relevant documents found'}
+            )
+            return {
+                "error": "NO_DOCUMENTS_FOUND",
+                "message": "No relevant information found for your query"
+            }
+        
+        # Stage 2: Reranking complete (30% → 70%)
+        self.update_state(
+            state='PROCESSING',
+            meta={'progress': 30, 'message': 'Documents retrieved. Analyzing...'}
+        )
+        
+        # Simulate reranking progress (already done in retrieval_service)
+        time.sleep(0.5)  # Small delay for smoother UX
+        
+        self.update_state(
+            state='PROCESSING',
+            meta={'progress': 70, 'message': 'Generating answer...'}
+        )
+        
+        # Stage 3: Generation (70% → 100%)
+        start_generation = time.time()
+        generation_service = GenerationService(config)
+        
+        answer = generation_service.generate_answer(
+            query=query,
+            retrieved_docs=docs,
+            chat_history=lc_history if lc_history else None
+        )
+        generation_time = time.time() - start_generation
+        
+        # Extract sources
+        sources = []
+        seen_sources = set()
+        for doc in docs:
+            source_name = doc.metadata.get('source', 'Unknown')
+            if source_name not in seen_sources:
+                sources.append({
+                    'document': source_name,
+                    'page': doc.metadata.get('page_label')
+                })
+                seen_sources.add(source_name)
+        
+        # Stage 4: Complete (100%)
+        result = {
+            "answer": answer,
+            "sources": sources,
+            "metrics": {
+                "retrieval_time": round(retrieval_time, 2),
+                "reranking_time": round(metrics.get('rerank_seconds', 0), 2),
+                "generation_time": round(generation_time, 2),
+                "total_time": round(retrieval_time + generation_time, 2)
+            }
+        }
+        
+        self.update_state(
+            state='SUCCESS',
+            meta={'progress': 100, 'message': 'Complete!', 'result': result}
+        )
+        
+        logger.info(f"✅ Query completed in {result['metrics']['total_time']:.2f}s")
+        return result
+        
+    except Exception as exc:
+        logger.error(f"❌ Query task failed: {exc}")
+        self.update_state(
+            state='FAILURE',
+            meta={'progress': 100, 'error': str(exc)}
+        )
+        raise
 
 
 # Custom Retry Task with exponential backoff
